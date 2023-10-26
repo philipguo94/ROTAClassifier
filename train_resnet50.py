@@ -15,10 +15,12 @@ num_epochs = 100
 # Define data transforms
 data_transform = transforms.Compose([
     transforms.Resize(256),
-    transforms.CenterCrop(224), 
+    # rotate between -10 and 10 degrees
+    transforms.RandomRotation(10),
+    # flip horizontally with probability 0.5
+    transforms.RandomHorizontalFlip(0.5),
     transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+    transforms.Normalize([0.5], [0.2])])
 
 # Dataset class
 class BinaryDataset(Dataset):
@@ -41,6 +43,9 @@ class BinaryDataset(Dataset):
     def __getitem__(self, index):
         img_path = self.filenames[index]
         img = Image.open(img_path)
+        # if 3 channel, convert to 1 channel
+        if img.mode == 'RGB':
+            img = img.convert('L')
         img = self.transform(img)
         label = self.labels[index]
         return img, label
@@ -55,6 +60,8 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
 # Define model
 model = models.resnet50(pretrained=True)
+# input as (1, 256, 256) instead of (3, 256, 256)
+model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
 num_features = model.fc.in_features
 model.fc = nn.Linear(num_features, 2) 
 
@@ -80,7 +87,7 @@ for epoch in range(num_epochs):
         optimizer.step()
         optimizer.zero_grad()
         gts.append(labels.cpu().numpy())
-        preds.append(outputs.cpu().numpy())
+        preds.append(outputs.detach().cpu().numpy())
 
     gts = np.concatenate(gts)
     preds = np.concatenate(preds)
@@ -98,7 +105,7 @@ for epoch in range(num_epochs):
             labels = labels.to(device)
             outputs = model(images)
             _, predictions = torch.max(outputs, 1)
-            preds.append(outputs.cpu().numpy())
+            preds.append(outputs.detach().cpu().numpy())
             gts.append(labels.cpu().numpy())
             n_samples += labels.size(0)
             n_correct += (predictions == labels).sum().item()
