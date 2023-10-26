@@ -10,7 +10,7 @@ from sklearn.metrics import roc_auc_score
 
 # Define hyperparameters
 batch_size = 16
-num_epochs = 100
+num_epochs = 500
 
 # Define data transforms
 data_transform = transforms.Compose([
@@ -68,8 +68,15 @@ model.fc = nn.Linear(num_features, 2)
 # Loss and optimizer
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
-
+# cyclic learning rate
+scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.001, max_lr=0.1, step_size_up=20, mode='triangular2')
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+# init wandb
+import wandb
+wandb.init(project="pytorch-resnet50")
+# task name
+wandb.run.name = "single resnet50"
 
 # Train loop
 auc = 0
@@ -88,11 +95,18 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         gts.append(labels.cpu().numpy())
         preds.append(outputs.detach().cpu().numpy())
+        # wandb
+        wandb.log({"Epoch": epoch, "Loss": loss.item(), "Learning Rate": scheduler.get_last_lr()[0]})
+        
+    scheduler.step()
 
     gts = np.concatenate(gts)
     preds = np.concatenate(preds)
     auc = roc_auc_score(gts, preds[:, 1])
     print(f'Epoch {epoch+1}, Loss: {loss.item():.4f}, AUC: {auc:.4f}')
+    # wandb display
+    wandb.log({"Epoch": epoch, "Train AUC": auc})
+
     # Test loop   
     auc = 0
     gts = []
@@ -109,8 +123,12 @@ for epoch in range(num_epochs):
             gts.append(labels.cpu().numpy())
             n_samples += labels.size(0)
             n_correct += (predictions == labels).sum().item()
+            # wandb
+            wandb.log({"Epoch": epoch, "Test Accuracy": n_correct / n_samples})
 
         gts = np.concatenate(gts)
         preds = np.concatenate(preds)
         auc = roc_auc_score(np.concatenate(gts), np.concatenate(preds)[:, 1])
         print(f'AUC: {auc:.4f}')
+        # wandb display
+        wandb.log({"Epoch": epoch, "Test AUC": auc})
